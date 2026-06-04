@@ -256,7 +256,8 @@ class MTProtoProxyBot:
             encoded_secret = quote(secret, safe='')
             web_link = f"https://t.me/proxy?server={server}&port={port}&secret={encoded_secret}"
             copy_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={quote(secret, safe='')}"
-            check_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={quote(f'\u0421\u0442\u0430\u0442\u0443\u0441: \u043f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435: {server}:{port}', safe='')}"
+            check_msg = f"\u0421\u0442\u0430\u0442\u0443\u0441: \u043f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435: {server}:{port}"
+            check_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={quote(check_msg, safe='')}"
 
             ping, status = await self._check_ping(server, port)
             location = await self._guess_location(server)

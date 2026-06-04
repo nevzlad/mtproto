@@ -14,3 +14,4 @@ session*
 .vscode/
 .DS_Store
 prompt.md
+setup_github.ps1

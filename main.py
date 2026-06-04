@@ -17,10 +17,16 @@ API_HASH = os.environ['API_HASH']
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHANNEL_USERNAME = os.environ['CHANNEL_USERNAME']
 
+# Источники парсинга
 MTPROTO_URL = "https://mtproto.cloud/"
 FEED_URL = "https://mtproto.cloud/api/feed"
 MTPRO_XYZ_URL = "https://mtpro.xyz/"
 MTPRO_XYZ_API = "https://mtpro.xyz/api/proxies"
+
+# Telegram-каналы для парсинга
+TELEGRAM_CHANNELS = [
+    "ProxyFree_Ru"
+]
 
 DB_FILE = "published_proxies.db"
 
@@ -282,6 +288,88 @@ class MTProtoProxyBot:
                 print(f"[{datetime.now()}] PARSER: mtpro.xyz HTML error: {e}")
         print(f"[{datetime.now()}] PARSER: mtpro.xyz - New: {len(self.proxies) - initial_count}")
 
+    async def parse_telegram_channels(self):
+        """Парсинг Telegram-каналов через публичные веб-превью"""
+        print(f"[{datetime.now()}] PARSER: Starting Telegram channels parsing...")
+        initial_count = len(self.proxies)
+        seen_set = set()
+        
+        async with aiohttp.ClientSession() as session:
+            for channel in TELEGRAM_CHANNELS:
+                try:
+                    url = f"https://t.me/s/{channel}"
+                    print(f"[{datetime.now()}] PARSER: Fetching @{channel}...")
+                    
+                    async with session.get(url, timeout=30) as response:
+                        if response.status != 200:
+                            print(f"[{datetime.now()}] PARSER: @{channel} returned {response.status}")
+                            continue
+                        
+                        html = await response.text()
+                        soup = BeautifulSoup(html, 'html.parser')
+                        
+                        messages = soup.find_all('div', class_='tgme_widget_message_text')
+                        print(f"[{datetime.now()}] PARSER: @{channel} - Found {len(messages)} messages")
+                        
+                        for msg in messages:
+                            text = msg.get_text()
+                            
+                            # Паттерн 1: tg://proxy?server=...&port=...&secret=...
+                            for match in re.finditer(r'tg://proxy\?server=([^&]+)&port=(\d+)&secret=([^&\s]+)', text):
+                                server = match.group(1).strip()
+                                port_str = match.group(2)
+                                secret = match.group(3).strip()
+                                try:
+                                    port = int(port_str)
+                                except ValueError:
+                                    continue
+                                key = (server, port, secret)
+                                if key in seen_set:
+                                    continue
+                                seen_set.add(key)
+                                self.proxies.append({'server': server, 'port': port, 'secret': secret})
+                                print(f"[{datetime.now()}] PARSER: @{channel} tg:// proxy: {server}:{port}")
+                            
+                            # Паттерн 2: https://t.me/proxy?server=...&port=...&secret=...
+                            for match in re.finditer(r'https://t\.me/proxy\?server=([^&]+)&port=(\d+)&secret=([^&\s]+)', text):
+                                server = match.group(1).strip()
+                                port_str = match.group(2)
+                                secret = match.group(3).strip()
+                                try:
+                                    port = int(port_str)
+                                except ValueError:
+                                    continue
+                                key = (server, port, secret)
+                                if key in seen_set:
+                                    continue
+                                seen_set.add(key)
+                                self.proxies.append({'server': server, 'port': port, 'secret': secret})
+                                print(f"[{datetime.now()}] PARSER: @{channel} https:// proxy: {server}:{port}")
+                            
+                            # Паттерн 3: IP:Port:Secret
+                            for match in re.finditer(r'(\d+\.\d+\.\d+\.\d+):(\d+):([a-fA-F0-9]{32,})', text):
+                                server = match.group(1)
+                                port_str = match.group(2)
+                                secret = match.group(3)
+                                try:
+                                    port = int(port_str)
+                                except ValueError:
+                                    continue
+                                key = (server, port, secret)
+                                if key in seen_set:
+                                    continue
+                                seen_set.add(key)
+                                self.proxies.append({'server': server, 'port': port, 'secret': secret})
+                                print(f"[{datetime.now()}] PARSER: @{channel} IP:Port:Secret proxy: {server}:{port}")
+                    
+                    await asyncio.sleep(1)
+                    
+                except Exception as e:
+                    print(f"[{datetime.now()}] PARSER: @{channel} error: {e}")
+        
+        new_count = len(self.proxies) - initial_count
+        print(f"[{datetime.now()}] PARSER: Telegram channels - New: {new_count}")
+
     async def validate_proxies(self):
         print(f"[{datetime.now()}] VALIDATOR: Starting validation...")
         working = []
@@ -386,15 +474,21 @@ class MTProtoProxyBot:
 
     async def run(self):
         await self.start()
+        
+        # Парсинг со всех источников
         await self.parse_mtproto_cloud()
         await self.parse_mtpro_xyz()
+        await self.parse_telegram_channels()
+        
         print(f"[{datetime.now()}] Total before validation: {len(self.proxies)}")
         await self.validate_proxies()
         print(f"[{datetime.now()}] Working proxies: {len(self.proxies)}")
+        
         if self.proxies:
             await self.publish_proxies()
         else:
             print(f"[{datetime.now()}] No working proxies found")
+        
         self._cleanup_old_records(days=7)
         await self.client.disconnect()
 

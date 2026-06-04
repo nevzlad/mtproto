@@ -198,7 +198,9 @@ class MTProtoProxyBot:
             server = proxy['server']
             port = proxy['port']
             secret = proxy['secret']
-            web_link = f"https://t.me/proxy?server={server}&port={port}&secret={quote(secret, safe='')}"
+            encoded_secret = quote(secret, safe='')
+            web_link = f"https://t.me/proxy?server={server}&port={port}&secret={encoded_secret}"
+            tg_link = f"tg://proxy?server={server}&port={port}&secret={encoded_secret}"
 
             message = (
                 f"\u26a1\ufe0f <b>\u041f\u0440\u043e\u043a\u0441\u0438 \u0434\u043b\u044f "
@@ -206,10 +208,14 @@ class MTProtoProxyBot:
                 f"Telegram</b>\n\n"
                 f"<b>\u0425\u043e\u0441\u0442:</b> <code>{server}</code>\n"
                 f"<b>\u041f\u043e\u0440\u0442:</b> <code>{port}</code>\n"
-                f"<b>\u0421\u0435\u043a\u0440\u0435\u0442:</b> <code>{secret}</code>"
+                f"<b>\u0421\u0435\u043a\u0440\u0435\u0442:</b> <code>{secret}</code>\n\n"
+                f"\ud83d\udc49 \u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043d\u0438\u0436\u0435 \u2014 "
+                f"\u043f\u0440\u043e\u043a\u0441\u0438 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u0443\u0435\u0442\u0441\u044f "
+                f"\u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438."
             )
             buttons = [
                 [Button.url("\ud83d\udd0c \u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f", web_link)],
+                [Button.url("\ud83d\udce1 \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0432 Telegram", tg_link)],
             ]
             await self._call_with_retry(
                 self.client.send_message, CHANNEL_USERNAME, message,

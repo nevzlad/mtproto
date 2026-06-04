@@ -102,30 +102,62 @@ class MTProtoProxyBot:
         raise RuntimeError("Could not connect to Telegram via any method")
 
     async def parse_mtproto_cloud(self):
-        print(f"[{datetime.now()}] PARSER: Starting parse of {MTPROTO_URL}")
+        print(f"[{datetime.now()}] PARSER: Starting parsing...")
+
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(MTPROTO_URL, timeout=30) as response:
-                    html = await response.text()
-                    print(f"[{datetime.now()}] PARSER: Page loaded, {len(html)} bytes")
-                    soup = BeautifulSoup(html, 'html.parser')
-
-                    proxy_cards = soup.find_all(
-                        'div', class_=re.compile(r'proxy|card|server', re.I)
-                    )
-                    print(f"[{datetime.now()}] PARSER: Found {len(proxy_cards)} proxy cards")
-                    for card in proxy_cards:
-                        proxy_data = self.extract_proxy_from_card(card)
-                        if proxy_data:
-                            self.proxies.append(proxy_data)
-                            print(f"[{datetime.now()}] PARSER: Extracted proxy: {proxy_data['server']}:{proxy_data['port']}")
-
-                    text = soup.get_text()
-                    self.extract_proxies_from_text(text)
-
-                print(f"[{datetime.now()}] PARSER: Total proxies found: {len(self.proxies)}")
+                async with session.get(FEED_URL, timeout=30) as response:
+                    data = await response.json(content_type=None)
+                items = data.get('items', []) if isinstance(data, dict) else []
+                print(f"[{datetime.now()}] PARSER: API feed returned {len(items)} items")
+                seen_set = set()
+                for item in items:
+                    if item.get('category') != 'proxy' or item.get('kind') != 'mtproto_proxy':
+                        continue
+                    if item.get('status') != 'online':
+                        continue
+                    server = (item.get('server') or '').strip()
+                    port = item.get('port')
+                    share_text = item.get('shareText') or item.get('connectUrl') or ''
+                    if not server or port is None or not share_text:
+                        continue
+                    from urllib.parse import urlparse, parse_qs
+                    try:
+                        qs = parse_qs(urlparse(share_text).query)
+                    except Exception:
+                        continue
+                    secret = (qs.get('secret') or [''])[0].strip()
+                    if not secret:
+                        continue
+                    key = (server, int(port), secret)
+                    if key in seen_set:
+                        continue
+                    seen_set.add(key)
+                    proxy = {'server': server, 'port': int(port), 'secret': secret}
+                    self.proxies.append(proxy)
+                    print(f"[{datetime.now()}] PARSER: API proxy: {server}:{port}")
             except Exception as e:
-                print(f"[{datetime.now()}] PARSER: Parse error: {e}")
+                print(f"[{datetime.now()}] PARSER: API feed error (fallback to HTML): {e}")
+                try:
+                    async with session.get(MTPROTO_URL, timeout=30) as response:
+                        html = await response.text()
+                        print(f"[{datetime.now()}] PARSER: HTML page loaded, {len(html)} bytes")
+                        soup = BeautifulSoup(html, 'html.parser')
+                        proxy_cards = soup.find_all(
+                            'div', class_=re.compile(r'proxy|card|server', re.I)
+                        )
+                        print(f"[{datetime.now()}] PARSER: Found {len(proxy_cards)} proxy cards")
+                        for card in proxy_cards:
+                            proxy_data = self.extract_proxy_from_card(card)
+                            if proxy_data:
+                                self.proxies.append(proxy_data)
+                                print(f"[{datetime.now()}] PARSER: HTML proxy: {proxy_data['server']}:{proxy_data['port']}")
+                        text = soup.get_text()
+                        self.extract_proxies_from_text(text)
+                except Exception as e2:
+                    print(f"[{datetime.now()}] PARSER: HTML fallback also failed: {e2}")
+
+            print(f"[{datetime.now()}] PARSER: Total proxies found: {len(self.proxies)}")
 
     def extract_proxy_from_card(self, card):
         try:

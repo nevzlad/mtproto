@@ -5,6 +5,7 @@ import re
 import os
 import socket
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 from telethon import TelegramClient, errors
@@ -251,7 +252,6 @@ class MTProtoProxyBot:
 
         async with aiohttp.ClientSession() as session:
             try:
-                # Пробуем API сначала
                 async with session.get(MTPRO_XYZ_API, timeout=30) as response:
                     if response.status == 200:
                         try:
@@ -291,13 +291,11 @@ class MTProtoProxyBot:
             except Exception as e:
                 print(f"[{datetime.now()}] PARSER: mtpro.xyz API not available: {e}")
             
-            # Fallback: парсинг HTML
             try:
                 async with session.get(MTPRO_XYZ_URL, timeout=30) as response:
                     html = await response.text()
                     soup = BeautifulSoup(html, 'html.parser')
                     
-                    # Ищем ссылки tg://proxy
                     for link in soup.find_all('a', href=re.compile(r'tg://proxy')):
                         href = link['href']
                         qs = parse_qs(urlparse(href).query)
@@ -322,7 +320,6 @@ class MTProtoProxyBot:
                         self.proxies.append(proxy)
                         print(f"[{datetime.now()}] PARSER: mtpro.xyz HTML proxy: {server}:{port}")
                     
-                    # Ищем текстовые паттерны
                     text = soup.get_text()
                     patterns = [
                         r'server[=:\s]+([a-zA-Z0-9.-]+)[\s,\n]+port[=:\s]+(\d+)[\s,\n]+secret[=:\s]+([a-fA-F0-9]+)',
@@ -358,12 +355,10 @@ class MTProtoProxyBot:
             port = proxy['port']
             secret = proxy['secret']
             
-            # Пропускаем уже опубликованные (проверка на дубли)
             if self._is_already_published(server, port, secret):
                 print(f"[{datetime.now()}] VALIDATOR: Skipping duplicate {server}:{port}")
                 continue
             
-            # Проверяем работоспособность
             is_working = await self._is_proxy_working(server, port, timeout=5)
             
             if is_working:
@@ -372,11 +367,10 @@ class MTProtoProxyBot:
             else:
                 print(f"[{datetime.now()}] VALIDATOR: ❌ {server}:{port} - Not working")
             
-            # Небольшая пауза чтобы не перегружать сеть
             await asyncio.sleep(0.5)
         
         self.proxies = working_proxies
-        print(f"[{datetime.now()}] VALIDATOR: Working proxies: {len(working_proxies)}/{len(self.proxies) + len(working_proxies)}")
+        print(f"[{datetime.now()}] VALIDATOR: Working proxies: {len(working_proxies)}")
 
     async def _call_with_retry(self, fn, *args, max_retries=3, **kwargs):
         for attempt in range(max_retries):
@@ -457,7 +451,6 @@ class MTProtoProxyBot:
                 buttons=buttons, parse_mode='html', link_preview=False
             )
             
-            # Отмечаем как опубликованный
             self._mark_as_published(server, port, secret)
             
             print(f"[{datetime.now()}] Sent post with 3 buttons for {server}:{port}, msg_id={msg.id if msg else '?'}")
@@ -475,13 +468,11 @@ class MTProtoProxyBot:
     async def run(self):
         await self.start()
         
-        # Парсинг с обоих источников
         await self.parse_mtproto_cloud()
         await self.parse_mtpro_xyz()
         
         print(f"[{datetime.now()}] Total proxies before validation: {len(self.proxies)}")
         
-        # Проверка работоспособности и фильтрация дубликатов
         await self.validate_proxies()
         
         print(f"[{datetime.now()}] Total working proxies to publish: {len(self.proxies)}")
@@ -491,7 +482,6 @@ class MTProtoProxyBot:
         else:
             print(f"[{datetime.now()}] No working proxies found")
         
-        # Очистка старых записей
         self._cleanup_old_records(days=7)
         
         await self.client.disconnect()

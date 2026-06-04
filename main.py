@@ -17,7 +17,6 @@ API_HASH = os.environ['API_HASH']
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHANNEL_USERNAME = os.environ['CHANNEL_USERNAME']
 
-# Источники парсинга
 MTPROTO_URL = "https://mtproto.cloud/"
 FEED_URL = "https://mtproto.cloud/api/feed"
 MTPRO_XYZ_URL = "https://mtpro.xyz/"

@@ -1,9 +1,9 @@
 import asyncio
+import aiohttp
+from bs4 import BeautifulSoup
+import re
 import os
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
-
-import aiohttp
 from telethon import TelegramClient
 from telethon.tl.custom import Button
 
@@ -13,7 +13,7 @@ API_HASH = os.environ['API_HASH']
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHANNEL_USERNAME = os.environ['CHANNEL_USERNAME']
 
-FEED_URL = "https://mtproto.cloud/api/feed"
+MTPROTO_URL = "https://mtproto.cloud/"
 
 
 class MTProtoProxyBot:
@@ -26,52 +26,83 @@ class MTProtoProxyBot:
         print(f"[{datetime.now()}] Bot started as {CHANNEL_USERNAME} target")
 
     async def parse_mtproto_cloud(self):
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(MTPROTO_URL, timeout=30) as response:
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+
+                    proxy_cards = soup.find_all(
+                        'div', class_=re.compile(r'proxy|card|server', re.I)
+                    )
+                    for card in proxy_cards:
+                        proxy_data = self.extract_proxy_from_card(card)
+                        if proxy_data:
+                            self.proxies.append(proxy_data)
+
+                    text = soup.get_text()
+                    self.extract_proxies_from_text(text)
+
+                print(f"[{datetime.now()}] Proxies found: {len(self.proxies)}")
+            except Exception as e:
+                print(f"[{datetime.now()}] Parse error: {e}")
+
+    def extract_proxy_from_card(self, card):
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(FEED_URL, timeout=30) as response:
-                    response.raise_for_status()
-                    data = await response.json(content_type=None)
+            server = port = secret = None
+
+            server_tag = card.find(text=re.compile(r'server|сервер', re.I))
+            if server_tag:
+                parent = server_tag.find_parent()
+                if parent:
+                    server_text = parent.get_text(strip=True)
+                    server_match = re.search(r'([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', server_text)
+                    if server_match:
+                        server = server_match.group(1)
+
+            port_tag = card.find(text=re.compile(r'port|порт', re.I))
+            if port_tag:
+                parent = port_tag.find_parent()
+                if parent:
+                    port_text = parent.get_text(strip=True)
+                    port_match = re.search(r'(\d{2,5})', port_text)
+                    if port_match:
+                        port = int(port_match.group(1))
+
+            secret_tag = card.find(text=re.compile(r'secret|ключ', re.I))
+            if secret_tag:
+                parent = secret_tag.find_parent()
+                if parent:
+                    secret_text = parent.get_text(strip=True)
+                    secret_match = re.search(r'([a-fA-F0-9]{32,})', secret_text)
+                    if secret_match:
+                        secret = secret_match.group(1)
+
+            if server and port and secret:
+                return {'server': server, 'port': port, 'secret': secret}
         except Exception as e:
-            print(f"[{datetime.now()}] Fetch error: {e}")
-            return
+            print(f"Extract error: {e}")
+        return None
 
-        items = data.get('items', []) if isinstance(data, dict) else []
-        seen = set()
-        for item in items:
-            if item.get('category') != 'proxy' or item.get('kind') != 'mtproto_proxy':
-                continue
-            if item.get('status') != 'online':
-                continue
-            proxy = self._build_proxy(item)
-            if not proxy:
-                continue
-            key = (proxy['server'], proxy['port'], proxy['secret'])
-            if key in seen:
-                continue
-            seen.add(key)
-            self.proxies.append(proxy)
-
-        print(f"[{datetime.now()}] Proxies found: {len(self.proxies)}")
-
-    @staticmethod
-    def _build_proxy(item):
-        server = (item.get('server') or '').strip()
-        port = item.get('port')
-        share_text = item.get('shareText') or item.get('connectUrl') or ''
-        if not server or port is None or not share_text:
-            return None
-        try:
-            port = int(port)
-        except (TypeError, ValueError):
-            return None
-        try:
-            qs = parse_qs(urlparse(share_text).query)
-        except Exception:
-            return None
-        secret = (qs.get('secret') or [''])[0].strip()
-        if not secret:
-            return None
-        return {'server': server, 'port': port, 'secret': secret}
+    def extract_proxies_from_text(self, text):
+        patterns = [
+            r'server[:\s]+([a-zA-Z0-9.-]+)[\s,\n]+port[:\s]+(\d+)[\s,\n]+secret[:\s]+([a-fA-F0-9]+)',
+            r'tg://proxy\?server=([^&]+)&port=(\d+)&secret=([^&\s]+)',
+        ]
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                if len(match) == 3:
+                    proxy = {
+                        'server': match[0].strip(),
+                        'port': int(match[1]),
+                        'secret': match[2].strip(),
+                    }
+                    if not any(
+                        p['server'] == proxy['server'] and p['port'] == proxy['port']
+                        for p in self.proxies
+                    ):
+                        self.proxies.append(proxy)
 
     async def send_proxy_message(self, proxy):
         try:

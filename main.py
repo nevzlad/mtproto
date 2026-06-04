@@ -8,22 +8,19 @@ from telethon import TelegramClient, errors
 from telethon.tl.custom import Button
 from telethon.network.connection import ConnectionTcpMTProxyRandomizedIntermediate
 
-
 API_ID = int(os.environ['API_ID'])
 API_HASH = os.environ['API_HASH']
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHANNEL_USERNAME = os.environ['CHANNEL_USERNAME']
-
 MTPROTO_URL = "https://mtproto.cloud/"
 FEED_URL = "https://mtproto.cloud/api/feed"
-
 
 class MTProtoProxyBot:
     def __init__(self):
         self.client = None
         self.proxies = []
         self.relay_proxies = []
-
+    
     async def fetch_relay_proxies(self):
         print(f"[{datetime.now()}] Fetching relay proxies from API...")
         try:
@@ -192,28 +189,6 @@ class MTProtoProxyBot:
                 await asyncio.sleep(wait)
         raise RuntimeError(f"Failed after {max_retries} retries")
 
-    async def _send_post_with_button(self, text, button_text, button_url):
-        try:
-            buttons = [[Button.url(button_text, button_url)]]
-            msg = await self._call_with_retry(
-                self.client.send_message, CHANNEL_USERNAME, text,
-                buttons=buttons, parse_mode='html', link_preview=False
-            )
-            print(f"[{datetime.now()}] Post sent, msg_id={msg.id if msg else '?'}, btn={button_text}")
-            return msg
-        except Exception as e:
-            print(f"[{datetime.now()}] Send post error: {e}")
-            try:
-                msg = await self._call_with_retry(
-                    self.client.send_message, CHANNEL_USERNAME, text,
-                    parse_mode='html', link_preview=False
-                )
-                print(f"[{datetime.now()}] Fallback text-only post sent, msg_id={msg.id if msg else '?'}")
-                return msg
-            except Exception as e2:
-                print(f"[{datetime.now()}] Fallback also failed: {e2}")
-                return None
-
     async def _check_ping(self, server, port, timeout=5):
         import socket
         import time
@@ -225,10 +200,10 @@ class MTProtoProxyBot:
             ping = round((time.time() - start) * 1000)
             sock.close()
             if result == 0:
-                return ping, "\u2705 \u0420\u0430\u0431\u043e\u0447\u0438\u0439"
-            return None, "\u274c \u041d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d"
+                return ping, "✅ Рабочий"
+            return None, "❌ Недоступен"
         except (socket.gaierror, socket.timeout, OSError):
-            return None, "\u26a0\ufe0f \u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e"
+            return None, "⚠️ Неизвестно"
 
     async def _guess_location(self, server):
         import socket
@@ -248,64 +223,64 @@ class MTProtoProxyBot:
             return "Unknown"
 
     async def send_proxy_message(self, proxy):
+        """ОТПРАВКА ОДНОГО СООБЩЕНИЯ С ТРЕМЯ КНОПКАМИ"""
         try:
             from urllib.parse import quote
+            
             server = proxy['server']
             port = proxy['port']
             secret = proxy['secret']
-            encoded_secret = quote(secret, safe='')
-            web_link = f"https://t.me/proxy?server={server}&port={port}&secret={encoded_secret}"
-            copy_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={quote(secret, safe='')}"
-            check_msg = f"\u0421\u0442\u0430\u0442\u0443\u0441: \u043f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435: {server}:{port}"
-            check_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={quote(check_msg, safe='')}"
-
+            
+            # Проверяем пинг и локацию
             ping, status = await self._check_ping(server, port)
             location = await self._guess_location(server)
-
-            ping_str = f"{ping} \u043c\u0441" if ping else "N/A"
+            ping_str = f"{ping} мс" if ping else "N/A"
+            
+            # Создаем ссылки для кнопок
+            encoded_secret = quote(secret, safe='')
+            
+            # Кнопка 1: Подключить (tg:// ссылка для автоподключения)
+            connect_link = f"tg://proxy?server={server}&port={port}&secret={encoded_secret}"
+            
+            # Кнопка 2: Копировать (ссылка для шеринга с настройками)
+            copy_text = f"server={server}\nport={port}\nsecret={secret}"
+            copy_link = f"https://t.me/share/url?url={quote('', safe='')}&text={quote(copy_text, safe='')}"
+            
+            # Кнопка 3: Проверить (ссылка для проверки)
+            check_msg = f"Проверка прокси {server}:{port}"
+            check_link = f"https://t.me/share/url?url={quote(connect_link, safe='')}&text={quote(check_msg, safe='')}"
+            
+            # Формируем текст сообщения
             info_text = (
-                f"\u26a1\ufe0f <b>MTProto \u041f\u0440\u043e\u043a\u0441\u0438 \u2014 \u041e\u0431\u0445\u043e\u0434 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043e\u043a</b>\n\n"
-                f"\ud83d\udda5 <b>\u0421\u0435\u0440\u0432\u0435\u0440:</b> <code>{server}</code>\n"
-                f"\ud83d\udd0c <b>\u041f\u043e\u0440\u0442:</b> <code>{port}</code>\n"
-                f"\ud83d\udd10 <b>\u0421\u0435\u043a\u0440\u0435\u0442:</b> <code>{secret}</code>\n\n"
-                f"\ud83d\udcca <b>\u0421\u0442\u0430\u0442\u0443\u0441:</b> {status}\n"
-                f"\u26a1 <b>\u041f\u0438\u043d\u0433:</b> {ping_str}\n"
-                f"\ud83c\udf0d <b>\u041b\u043e\u043a\u0430\u0446\u0438\u044f:</b> {location}\n\n"
-                f"\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435:"
+                f"⚡️ <b>MTProto Прокси — Обход блокировок</b>\n\n"
+                f"🖥 <b>Сервер:</b> <code>{server}</code>\n"
+                f"🔌 <b>Порт:</b> <code>{port}</code>\n"
+                f"🔐 <b>Секрет:</b> <code>{secret}</code>\n\n"
+                f"📊 <b>Статус:</b> {status}\n"
+                f"⚡ <b>Пинг:</b> {ping_str}\n"
+                f"🌍 <b>Локация:</b> {location}\n\n"
+                f"<b>Выберите действие:</b>"
             )
-            await self._send_post_with_button(
+            
+            # Создаем ТРИ КНОПКИ в одном сообщении
+            buttons = [
+                [Button.url("🚀 Подключить", connect_link)],
+                [Button.url("📋 Копировать", copy_link)],
+                [Button.url("🔍 Проверить", check_link)]
+            ]
+            
+            # Отправляем ОДНО сообщение с ТРЕМЯ кнопками
+            msg = await self._call_with_retry(
+                self.client.send_message,
+                CHANNEL_USERNAME,
                 info_text,
-                "\ud83d\ude80 \u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c",
-                web_link
+                buttons=buttons,
+                parse_mode='html',
+                link_preview=False
             )
-            print(f"[{datetime.now()}] Sent INFO+CONNECT post for {server}:{port}")
-
-            copy_text = (
-                f"\ud83d\udccb <b>\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0434\u043b\u044f \u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f:</b>\n\n"
-                f"<code>server={server}\nport={port}\nsecret={secret}</code>\n\n"
-                f"\ud83d\udca1 \u041d\u0430\u0436\u043c\u0438\u0442\u0435 <b>\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c</b> \u2014 \u0434\u0430\u043d\u043d\u044b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u044f\u0442\u0441\u044f \u0432 \u0431\u0443\u0444\u0435\u0440 \u043e\u0431\u043c\u0435\u043d\u0430."
-            )
-            await self._send_post_with_button(
-                copy_text,
-                "\ud83d\udccb \u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c",
-                copy_link
-            )
-            print(f"[{datetime.now()}] Sent COPY post for {server}:{port}")
-
-            check_text = (
-                f"\ud83d\udd0d <b>\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u043f\u0440\u043e\u043a\u0441\u0438:</b>\n\n"
-                f"\ud83d\udda5 <b>\u0421\u0435\u0440\u0432\u0435\u0440:</b> <code>{server}</code>\n"
-                f"\ud83d\udd0c <b>\u041f\u043e\u0440\u0442:</b> <code>{port}</code>\n"
-                f"\ud83d\udcca <b>\u0421\u0442\u0430\u0442\u0443\u0441:</b> {status}\n"
-                f"\u26a1 <b>\u041f\u0438\u043d\u0433:</b> {ping_str}\n\n"
-                f"\ud83d\udc49 \u041d\u0430\u0436\u043c\u0438\u0442\u0435 <b>\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c</b> \u2014 \u043e\u0442\u043a\u0440\u043e\u0435\u0442\u0441\u044f \u0441\u0441\u044b\u043b\u043a\u0430 \u0434\u043b\u044f \u0442\u0435\u0441\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f."
-            )
-            await self._send_post_with_button(
-                check_text,
-                "\ud83d\udd0d \u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c",
-                check_link
-            )
-            print(f"[{datetime.now()}] Published all 3 posts for proxy: {server}:{port}")
+            
+            print(f"[{datetime.now()}] Sent post with 3 buttons for {server}:{port}, msg_id={msg.id if msg else '?'}")
+            
         except Exception as e:
             print(f"[{datetime.now()}] Send error: {e}")
 
@@ -325,11 +300,9 @@ class MTProtoProxyBot:
             print(f"[{datetime.now()}] No proxies found")
         await self.client.disconnect()
 
-
 async def main():
     bot = MTProtoProxyBot()
     await bot.run()
-
 
 if __name__ == '__main__':
     asyncio.run(main())

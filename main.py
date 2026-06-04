@@ -195,12 +195,21 @@ class MTProtoProxyBot:
     async def _send_post_with_button(self, text, button_text, button_url):
         try:
             buttons = [[Button.url(button_text, button_url)]]
-            await self._call_with_retry(
+            msg = await self._call_with_retry(
                 self.client.send_message, CHANNEL_USERNAME, text,
                 buttons=buttons, parse_mode='html', link_preview=False
             )
+            print(f"[{datetime.now()}] Post sent, msg_id={msg.id if msg else '?'}, btn_url={button_url[:60]}")
         except Exception as e:
             print(f"[{datetime.now()}] Send post error: {e}")
+            try:
+                msg = await self._call_with_retry(
+                    self.client.send_message, CHANNEL_USERNAME, text,
+                    parse_mode='html', link_preview=False
+                )
+                print(f"[{datetime.now()}] Fallback text-only post sent, msg_id={msg.id if msg else '?'}")
+            except Exception as e2:
+                print(f"[{datetime.now()}] Fallback also failed: {e2}")
 
     async def send_proxy_message(self, proxy):
         try:

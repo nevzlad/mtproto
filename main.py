@@ -265,7 +265,7 @@ class MTProtoProxyBot:
 
     async def _send_second_message(self, proxy):
         proxy_link = (
-            f"tg://proxy?server={proxy['server']}"
+            f"https://t.me/proxy?server={proxy['server']}"
             f"&port={proxy['port']}&secret={proxy['secret']}"
         )
         second_text = (

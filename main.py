@@ -16,13 +16,14 @@ API_HASH = os.environ['API_HASH']
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHANNEL_USERNAME = os.environ['CHANNEL_USERNAME']
 
+# Источники для парсинга
 MTPROTO_URL = "https://mtproto.cloud/"
 FEED_URL = "https://mtproto.cloud/api/feed"
 MTPRO_XYZ_URL = "https://mtpro.xyz/"
 MTPRO_XYZ_API = "https://mtpro.xyz/api/proxies"
 
+# База данных для хранения опубликованных прокси
 DB_FILE = "published_proxies.db"
-
 
 class MTProtoProxyBot:
     def __init__(self):
@@ -30,8 +31,9 @@ class MTProtoProxyBot:
         self.proxies = []
         self.relay_proxies = []
         self.db = self._init_db()
-
+    
     def _init_db(self):
+        """Инициализация базы данных для отслеживания дубликатов"""
         conn = sqlite3.connect(DB_FILE)
         conn.execute('''
             CREATE TABLE IF NOT EXISTS published_proxies (
@@ -44,15 +46,17 @@ class MTProtoProxyBot:
         ''')
         conn.commit()
         return conn
-
+    
     def _is_already_published(self, server, port, secret):
+        """Проверка был ли прокси уже опубликован"""
         cursor = self.db.execute(
             'SELECT 1 FROM published_proxies WHERE server=? AND port=? AND secret=?',
             (server, port, secret)
         )
         return cursor.fetchone() is not None
-
+    
     def _mark_as_published(self, server, port, secret):
+        """Отметить прокси как опубликованный"""
         try:
             self.db.execute(
                 'INSERT OR REPLACE INTO published_proxies (server, port, secret, published_at) VALUES (?, ?, ?, ?)',
@@ -61,8 +65,9 @@ class MTProtoProxyBot:
             self.db.commit()
         except Exception as e:
             print(f"[{datetime.now()}] DB error: {e}")
-
+    
     def _cleanup_old_records(self, days=7):
+        """Удаление старых записей (старше 7 дней)"""
         try:
             cutoff = datetime.now() - timedelta(days=days)
             self.db.execute(
@@ -72,8 +77,9 @@ class MTProtoProxyBot:
             self.db.commit()
         except Exception as e:
             print(f"[{datetime.now()}] Cleanup error: {e}")
-
+    
     async def _is_proxy_working(self, server, port, timeout=5):
+        """Быстрая проверка работоспособности прокси через TCP connect"""
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(timeout)
@@ -82,8 +88,9 @@ class MTProtoProxyBot:
             return result == 0
         except (socket.gaierror, socket.timeout, OSError):
             return False
-
+    
     async def fetch_relay_proxies(self):
+        """Получение прокси для подключения бота"""
         print(f"[{datetime.now()}] Fetching relay proxies from API...")
         try:
             async with aiohttp.ClientSession() as session:
@@ -172,6 +179,7 @@ class MTProtoProxyBot:
         raise RuntimeError("Could not connect to Telegram via any method")
 
     async def parse_mtproto_cloud(self):
+        """Парсинг с mtproto.cloud"""
         print(f"[{datetime.now()}] PARSER: Starting mtproto.cloud parsing...")
         seen_set = set()
 
@@ -236,12 +244,14 @@ class MTProtoProxyBot:
         print(f"[{datetime.now()}] PARSER: mtproto.cloud - Total proxies found: {len(self.proxies)}")
 
     async def parse_mtpro_xyz(self):
+        """Парсинг с mtpro.xyz - ДОПОЛНИТЕЛЬНЫЙ ИСТОЧНИК"""
         print(f"[{datetime.now()}] PARSER: Starting mtpro.xyz parsing...")
         initial_count = len(self.proxies)
         seen_set = set()
 
         async with aiohttp.ClientSession() as session:
             try:
+                # Пробуем API сначала
                 async with session.get(MTPRO_XYZ_API, timeout=30) as response:
                     if response.status == 200:
                         try:
@@ -252,27 +262,27 @@ class MTProtoProxyBot:
                                 items = data.get('proxies', data.get('items', []))
                             else:
                                 items = []
-
+                            
                             print(f"[{datetime.now()}] PARSER: mtpro.xyz API returned {len(items)} items")
-
+                            
                             for item in items:
                                 server = (item.get('server') or item.get('host') or '').strip()
                                 port = item.get('port')
                                 secret = (item.get('secret') or item.get('password') or '').strip()
-
+                                
                                 if not server or port is None or not secret:
                                     continue
-
+                                
                                 try:
                                     port = int(port)
                                 except (TypeError, ValueError):
                                     continue
-
+                                
                                 key = (server, port, secret)
                                 if key in seen_set:
                                     continue
                                 seen_set.add(key)
-
+                                
                                 proxy = {'server': server, 'port': port, 'secret': secret}
                                 self.proxies.append(proxy)
                                 print(f"[{datetime.now()}] PARSER: mtpro.xyz API proxy: {server}:{port}")
@@ -280,36 +290,39 @@ class MTProtoProxyBot:
                             print(f"[{datetime.now()}] PARSER: mtpro.xyz API parse error: {e}")
             except Exception as e:
                 print(f"[{datetime.now()}] PARSER: mtpro.xyz API not available: {e}")
-
+            
+            # Fallback: парсинг HTML
             try:
                 async with session.get(MTPRO_XYZ_URL, timeout=30) as response:
                     html = await response.text()
                     soup = BeautifulSoup(html, 'html.parser')
-
+                    
+                    # Ищем ссылки tg://proxy
                     for link in soup.find_all('a', href=re.compile(r'tg://proxy')):
                         href = link['href']
                         qs = parse_qs(urlparse(href).query)
                         server = (qs.get('server') or [''])[0].strip()
                         port_str = (qs.get('port') or [''])[0]
                         secret = (qs.get('secret') or [''])[0].strip()
-
+                        
                         if not server or not port_str or not secret:
                             continue
-
+                        
                         try:
                             port = int(port_str)
                         except (TypeError, ValueError):
                             continue
-
+                        
                         key = (server, port, secret)
                         if key in seen_set:
                             continue
                         seen_set.add(key)
-
+                        
                         proxy = {'server': server, 'port': port, 'secret': secret}
                         self.proxies.append(proxy)
                         print(f"[{datetime.now()}] PARSER: mtpro.xyz HTML proxy: {server}:{port}")
-
+                    
+                    # Ищем текстовые паттерны
                     text = soup.get_text()
                     patterns = [
                         r'server[=:\s]+([a-zA-Z0-9.-]+)[\s,\n]+port[=:\s]+(\d+)[\s,\n]+secret[=:\s]+([a-fA-F0-9]+)',
@@ -336,30 +349,34 @@ class MTProtoProxyBot:
         print(f"[{datetime.now()}] PARSER: mtpro.xyz - New proxies found: {new_count}")
 
     async def validate_proxies(self):
+        """Проверка работоспособности всех найденных прокси"""
         print(f"[{datetime.now()}] VALIDATOR: Starting proxy validation...")
         working_proxies = []
-
+        
         for i, proxy in enumerate(self.proxies, 1):
             server = proxy['server']
             port = proxy['port']
             secret = proxy['secret']
-
+            
+            # Пропускаем уже опубликованные (проверка на дубли)
             if self._is_already_published(server, port, secret):
                 print(f"[{datetime.now()}] VALIDATOR: Skipping duplicate {server}:{port}")
                 continue
-
+            
+            # Проверяем работоспособность
             is_working = await self._is_proxy_working(server, port, timeout=5)
-
+            
             if is_working:
                 working_proxies.append(proxy)
-                print(f"[{datetime.now()}] VALIDATOR: OK {server}:{port} - Working")
+                print(f"[{datetime.now()}] VALIDATOR: ✅ {server}:{port} - Working")
             else:
-                print(f"[{datetime.now()}] VALIDATOR: FAIL {server}:{port} - Not working")
-
+                print(f"[{datetime.now()}] VALIDATOR: ❌ {server}:{port} - Not working")
+            
+            # Небольшая пауза чтобы не перегружать сеть
             await asyncio.sleep(0.5)
-
+        
         self.proxies = working_proxies
-        print(f"[{datetime.now()}] VALIDATOR: Working proxies: {len(working_proxies)}")
+        print(f"[{datetime.now()}] VALIDATOR: Working proxies: {len(working_proxies)}/{len(self.proxies) + len(working_proxies)}")
 
     async def _call_with_retry(self, fn, *args, max_retries=3, **kwargs):
         for attempt in range(max_retries):
@@ -375,16 +392,15 @@ class MTProtoProxyBot:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(timeout)
-            import time
             start = time.time()
             result = sock.connect_ex((server, int(port)))
             ping = round((time.time() - start) * 1000)
             sock.close()
             if result == 0:
-                return ping, "Working"
-            return None, "Unavailable"
+                return ping, "✅ Рабочий"
+            return None, "❌ Недоступен"
         except (socket.gaierror, socket.timeout, OSError):
-            return None, "Unknown"
+            return None, "⚠️ Неизвестно"
 
     async def _guess_location(self, server):
         try:
@@ -403,47 +419,49 @@ class MTProtoProxyBot:
             return "Unknown"
 
     async def send_proxy_message(self, proxy):
+        """Отправка одного сообщения с тремя кнопками"""
         try:
             server = proxy['server']
             port = proxy['port']
             secret = proxy['secret']
-
+            
             encoded_secret = quote(secret, safe='')
             web_link = f"https://t.me/proxy?server={server}&port={port}&secret={encoded_secret}"
             copy_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={quote(secret, safe='')}"
-            check_msg = f"Status: check connection: {server}:{port}"
+            check_msg = f"Статус: проверьте подключение: {server}:{port}"
             check_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={quote(check_msg, safe='')}"
 
             ping, status = await self._check_ping(server, port)
             location = await self._guess_location(server)
-            ping_str = f"{ping} ms" if ping else "N/A"
-
+            ping_str = f"{ping} мс" if ping else "N/A"
+            
             info_text = (
-                f"\u26a1\ufe0f <b>MTProto Proxy - Bypass blocks</b>\n\n"
-                f"\ud83d\udda5 <b>Server:</b> <code>{server}</code>\n"
-                f"\ud83d\udd0c <b>Port:</b> <code>{port}</code>\n"
-                f"\ud83d\udd10 <b>Secret:</b> <code>{secret}</code>\n\n"
-                f"\ud83d\udcca <b>Status:</b> {status}\n"
-                f"\u26a1 <b>Ping:</b> {ping_str}\n"
-                f"\ud83c\udf0d <b>Location:</b> {location}\n\n"
-                f"<b>Choose action:</b>"
+                f"⚡️ <b>MTProto Прокси — Обход блокировок</b>\n\n"
+                f"🖥 <b>Сервер:</b> <code>{server}</code>\n"
+                f"🔌 <b>Порт:</b> <code>{port}</code>\n"
+                f"🔐 <b>Секрет:</b> <code>{secret}</code>\n\n"
+                f"📊 <b>Статус:</b> {status}\n"
+                f"⚡ <b>Пинг:</b> {ping_str}\n"
+                f"🌍 <b>Локация:</b> {location}\n\n"
+                f"<b>Выберите действие:</b>"
             )
-
+            
             buttons = [
-                [Button.url("\ud83d\ude80 Connect", web_link)],
-                [Button.url("\ud83d\udccb Copy", copy_link)],
-                [Button.url("\ud83d\udd0d Check", check_link)]
+                [Button.url("🚀 Подключить", web_link)],
+                [Button.url("📋 Копировать", copy_link)],
+                [Button.url("🔍 Проверить", check_link)]
             ]
-
+            
             msg = await self._call_with_retry(
                 self.client.send_message, CHANNEL_USERNAME, info_text,
                 buttons=buttons, parse_mode='html', link_preview=False
             )
-
+            
+            # Отмечаем как опубликованный
             self._mark_as_published(server, port, secret)
-
+            
             print(f"[{datetime.now()}] Sent post with 3 buttons for {server}:{port}, msg_id={msg.id if msg else '?'}")
-
+            
         except Exception as e:
             print(f"[{datetime.now()}] Send error: {e}")
 
@@ -456,30 +474,31 @@ class MTProtoProxyBot:
 
     async def run(self):
         await self.start()
-
+        
+        # Парсинг с обоих источников
         await self.parse_mtproto_cloud()
         await self.parse_mtpro_xyz()
-
+        
         print(f"[{datetime.now()}] Total proxies before validation: {len(self.proxies)}")
-
+        
+        # Проверка работоспособности и фильтрация дубликатов
         await self.validate_proxies()
-
+        
         print(f"[{datetime.now()}] Total working proxies to publish: {len(self.proxies)}")
-
+        
         if self.proxies:
             await self.publish_proxies()
         else:
             print(f"[{datetime.now()}] No working proxies found")
-
+        
+        # Очистка старых записей
         self._cleanup_old_records(days=7)
-
+        
         await self.client.disconnect()
-
 
 async def main():
     bot = MTProtoProxyBot()
     await bot.run()
-
 
 if __name__ == '__main__':
     asyncio.run(main())

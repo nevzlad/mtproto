@@ -2,27 +2,32 @@ name: MTProto Proxy Publisher (Every 30 Minutes)
 
 on:
   schedule:
+    # Запуск каждые 30 минут
     - cron: '*/30 * * * *'
-  workflow_dispatch:
+  workflow_dispatch:  # Ручной запуск
 
 jobs:
   publish-proxies:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write  # Явно даем права на запись в репозиторий
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        persist-credentials: true # Сохраняем учетные данные для пуша
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-
+        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-
+        
     - name: Run proxy bot
       env:
         API_ID: ${{ secrets.API_ID }}
@@ -30,15 +35,11 @@ jobs:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
       run: python main.py
-
-    - name: Commit DB if changed
-      run: |
-        git config user.name "MTProto Bot"
-        git config user.email "bot@local"
-        git add published_proxies.db
-        git diff --staged --quiet || git commit -m "chore: update published_proxies.db [skip ci]"
-        git push
-
-    - name: Notify on failure
-      if: failure()
-      run: echo "Bot execution failed!"
+      
+    - name: Commit and push database changes
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "Auto-update: published proxies database"
+        file_pattern: "published_proxies.db"
+        commit_user_name: "github-actions[bot]"
+        commit_user_email: "github-actions[bot]@users.noreply.github.com"

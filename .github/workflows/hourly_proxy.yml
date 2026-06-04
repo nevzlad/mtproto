@@ -2,26 +2,30 @@ name: MTProto Proxy Publisher (Every 30 Minutes)
 
 on:
   schedule:
-    # Запуск каждые 30 минут
-    - cron: '*/5 * * * *'
-  workflow_dispatch:  # Ручной запуск
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   publish-proxies:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Явно даем права на запись в репозиторий
+      contents: write
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        persist-credentials: true # Сохраняем учетные данные для пуша
+        persist-credentials: true
+        fetch-depth: 0
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
+        cache: 'pip'
         
     - name: Install dependencies
       run: |
@@ -39,7 +43,7 @@ jobs:
     - name: Commit and push database changes
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
-        commit_message: "Auto-update: published proxies database"
+        commit_message: "Auto-update: published proxies database [skip ci]"
         file_pattern: "published_proxies.db"
         commit_user_name: "github-actions[bot]"
         commit_user_email: "github-actions[bot]@users.noreply.github.com"

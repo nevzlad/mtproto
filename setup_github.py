@@ -9,7 +9,7 @@ SECRETS = {
     'API_ID': '35092539',
     'API_HASH': '5cb97629a5f64bb5db5eab5a6f25ab02',
     'BOT_TOKEN': '8860014485:AAGnO7X188pIewo8Z3Mfwssbu-eSG6JagNo',
-    'CHANNEL_USERNAME': '@mtprotoactual',
+    'CHANNEL_USERNAME': 'mtprotoactual',
 }
 
 PAT = os.environ.get('GH_PAT', '')

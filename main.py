@@ -233,45 +233,62 @@ class MTProtoProxyBot:
                         self.proxies.append(proxy)
                         print(f"[{datetime.now()}] PARSER: Text-extracted proxy: {proxy['server']}:{proxy['port']}")
 
+    async def _call_with_retry(self, fn, *args, max_retries=3, **kwargs):
+        for attempt in range(max_retries):
+            try:
+                return await fn(*args, **kwargs)
+            except errors.FloodWaitError as e:
+                wait = e.seconds * (1 + attempt)
+                print(f"[{datetime.now()}] Flood wait {e.seconds}s, sleeping {wait}s (attempt {attempt+1}/{max_retries})")
+                await asyncio.sleep(wait)
+        raise RuntimeError(f"Failed after {max_retries} retries")
+
+    async def _send_first_message(self, proxy):
+        proxy_link = (
+            f"tg://proxy?server={proxy['server']}"
+            f"&port={proxy['port']}&secret={proxy['secret']}"
+        )
+        first_text = (
+            f"\u26a1\ufe0f <b>\u041f\u0440\u043e\u043a\u0441\u0438 \u0434\u043b\u044f "
+            f"\u041e\u0431\u0445\u043e\u0434\u0430 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043a\u0438 "
+            f"Telegram</b>\n\n"
+            f"<b>\u0425\u043e\u0441\u0442:</b> <code>{proxy['server']}</code>\n"
+            f"<b>\u041f\u043e\u0440\u0442:</b> <code>{proxy['port']}</code>\n"
+            f"<b>\u0421\u0435\u043a\u0440\u0435\u0442:</b> <code>{proxy['secret']}</code>\n\n"
+            f"\ud83d\udc49 \u041d\u0430\u0436\u043c\u0438\u0442\u0435 <b>\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f</b> \u043d\u0438\u0436\u0435 \u0438 \u043f\u0440\u043e\u043a\u0441\u0438 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u0443\u0435\u0442\u0441\u044f \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438."
+        )
+        await self.client.send_message(
+            CHANNEL_USERNAME, first_text,
+            parse_mode='html', link_preview=False
+        )
+        print(f"[{datetime.now()}] Sent first message for {proxy['server']}:{proxy['port']}")
+
+    async def _send_second_message(self, proxy):
+        proxy_link = (
+            f"tg://proxy?server={proxy['server']}"
+            f"&port={proxy['port']}&secret={proxy['secret']}"
+        )
+        second_text = (
+            f"\ud83d\udd10 <b>\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u043a \u043f\u0440\u043e\u043a\u0441\u0438</b>\n\n"
+            f"\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043d\u0438\u0436\u0435, \u0447\u0442\u043e\u0431\u044b "
+            f"\u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u0432 "
+            f"Telegram \u0432 \u043e\u0434\u0438\u043d \u043a\u043b\u0438\u043a."
+        )
+        buttons = [
+            [Button.url("\ud83d\udd0c \u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f \u043a \u043f\u0440\u043e\u043a\u0441\u0438", proxy_link)],
+        ]
+        await self.client.send_message(
+            CHANNEL_USERNAME, second_text,
+            parse_mode='html', buttons=buttons, link_preview=False
+        )
+        print(f"[{datetime.now()}] Published proxy: {proxy['server']}:{proxy['port']}")
+
     async def send_proxy_message(self, proxy):
         try:
-            proxy_link = (
-                f"tg://proxy?server={proxy['server']}"
-                f"&port={proxy['port']}&secret={proxy['secret']}"
-            )
-
-            first_text = (
-                f"\u26a1\ufe0f <b>\u041f\u0440\u043e\u043a\u0441\u0438 \u0434\u043b\u044f "
-                f"\u041e\u0431\u0445\u043e\u0434\u0430 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043a\u0438 "
-                f"Telegram</b>\n\n"
-                f"<b>\u0425\u043e\u0441\u0442:</b> <code>{proxy['server']}</code>\n"
-                f"<b>\u041f\u043e\u0440\u0442:</b> <code>{proxy['port']}</code>\n"
-                f"<b>\u0421\u0435\u043a\u0440\u0435\u0442:</b> <code>{proxy['secret']}</code>\n\n"
-                f"\ud83d\udc49 \u041d\u0430\u0436\u043c\u0438\u0442\u0435 <b>\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f</b> \u043d\u0438\u0436\u0435 \u0438 \u043f\u0440\u043e\u043a\u0441\u0438 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u0443\u0435\u0442\u0441\u044f \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438."
-            )
-            await self.client.send_message(
-                CHANNEL_USERNAME, first_text,
-                parse_mode='html', link_preview=False
-            )
-            print(f"[{datetime.now()}] Sent first message for {proxy['server']}:{proxy['port']}")
+            await self._call_with_retry(self._send_first_message, proxy)
             await asyncio.sleep(60)
             print(f"[{datetime.now()}] 1-minute delay completed, sending second message...")
-
-            second_text = (
-                f"\ud83d\udd10 <b>\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u043a \u043f\u0440\u043e\u043a\u0441\u0438</b>\n\n"
-                f"\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043d\u0438\u0436\u0435, \u0447\u0442\u043e\u0431\u044b "
-                f"\u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u0432 "
-                f"Telegram \u0432 \u043e\u0434\u0438\u043d \u043a\u043b\u0438\u043a."
-            )
-            buttons = [
-                [Button.url("\ud83d\udd0c \u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f \u043a \u043f\u0440\u043e\u043a\u0441\u0438", proxy_link)],
-            ]
-            await self.client.send_message(
-                CHANNEL_USERNAME, second_text,
-                parse_mode='html', buttons=buttons, link_preview=False
-            )
-
-            print(f"[{datetime.now()}] Published proxy: {proxy['server']}:{proxy['port']}")
+            await self._call_with_retry(self._send_second_message, proxy)
         except Exception as e:
             print(f"[{datetime.now()}] Send error: {e}")
 

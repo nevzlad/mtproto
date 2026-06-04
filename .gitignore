@@ -10,8 +10,6 @@ ENV/
 session*
 *.session
 *.session-journal
-.idea/
-.vscode/
-.DS_Store
+1.md
 prompt.md
 setup_github.ps1

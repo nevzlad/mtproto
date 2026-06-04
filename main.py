@@ -192,6 +192,16 @@ class MTProtoProxyBot:
                 await asyncio.sleep(wait)
         raise RuntimeError(f"Failed after {max_retries} retries")
 
+    async def _send_post_with_button(self, text, button_text, button_url):
+        try:
+            buttons = [[Button.url(button_text, button_url)]]
+            await self._call_with_retry(
+                self.client.send_message, CHANNEL_USERNAME, text,
+                buttons=buttons, parse_mode='html', link_preview=False
+            )
+        except Exception as e:
+            print(f"[{datetime.now()}] Send post error: {e}")
+
     async def send_proxy_message(self, proxy):
         try:
             from urllib.parse import quote
@@ -204,7 +214,7 @@ class MTProtoProxyBot:
             share_text = quote(f"\u26a1\ufe0f \u0420\u0430\u0431\u043e\u0447\u0438\u0439 MTProto \u043f\u0440\u043e\u043a\u0441\u0438:\n{server}:{port}", safe='')
             share_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={share_text}"
 
-            message = (
+            info_text = (
                 f"\u26a1\ufe0f <b>\u041f\u0440\u043e\u043a\u0441\u0438 \u0434\u043b\u044f "
                 f"\u041e\u0431\u0445\u043e\u0434\u0430 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043a\u0438 "
                 f"Telegram</b>\n\n"
@@ -215,16 +225,37 @@ class MTProtoProxyBot:
                 f"\u043f\u0440\u043e\u043a\u0441\u0438 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u0443\u0435\u0442\u0441\u044f "
                 f"\u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u0432 \u043e\u0434\u0438\u043d \u043a\u043b\u0438\u043a."
             )
-            buttons = [
-                [Button.url("\ud83d\udd0c \u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f (\u0430\u0432\u0442\u043e)", tg_link)],
-                [Button.url("\ud83c\udf10 \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0432 Telegram", web_link)],
-                [Button.url("\ud83d\udcac \u041f\u043e\u0434\u0435\u043b\u0438\u0442\u044c\u0441\u044f \u0441 \u0434\u0440\u0443\u0433\u043e\u043c", share_link)],
-            ]
-            await self._call_with_retry(
-                self.client.send_message, CHANNEL_USERNAME, message,
-                buttons=buttons, parse_mode='html', link_preview=False
+            await self._send_post_with_button(
+                info_text,
+                "\ud83d\udd0c \u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f",
+                tg_link
             )
-            print(f"[{datetime.now()}] Published proxy: {server}:{port}")
+            print(f"[{datetime.now()}] Sent CONNECT button post for {server}:{port}")
+
+            copy_text = (
+                f"\ud83d\udcb0 <b>\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u043f\u0440\u043e\u043a\u0441\u0438 \u0434\u043b\u044f \u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f:</b>\n\n"
+                f"<code>server={server}\nport={port}\nsecret={secret}</code>"
+            )
+            copy_link = f"https://t.me/share/url?url={quote(web_link, safe='')}&text={quote(secret, safe='')}"
+            await self._send_post_with_button(
+                copy_text,
+                "\ud83d\udccb \u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c",
+                copy_link
+            )
+            print(f"[{datetime.now()}] Sent COPY button post for {server}:{port}")
+
+            share_text_msg = (
+                f"\ud83d\ude80 <b>\u041f\u043e\u0434\u0435\u043b\u0438\u0442\u044c\u0441\u044f \u043f\u0440\u043e\u043a\u0441\u0438 \u0441 \u0434\u0440\u0443\u0437\u044c\u044f\u043c\u0438:</b>\n\n"
+                f"<b>\u0421\u0435\u0440\u0432\u0435\u0440:</b> <code>{server}</code>\n"
+                f"<b>\u041f\u043e\u0440\u0442:</b> <code>{port}</code>\n\n"
+                f"\ud83d\udc49 \u041d\u0430\u0436\u043c\u0438\u0442\u0435 <b>\u041f\u043e\u0434\u0435\u043b\u0438\u0442\u044c\u0441\u044f</b> \u043d\u0438\u0436\u0435"
+            )
+            await self._send_post_with_button(
+                share_text_msg,
+                "\ud83d\udcac \u041f\u043e\u0434\u0435\u043b\u0438\u0442\u044c\u0441\u044f",
+                share_link
+            )
+            print(f"[{datetime.now()}] Published all 3 posts for proxy: {server}:{port}")
         except Exception as e:
             print(f"[{datetime.now()}] Send error: {e}")
 

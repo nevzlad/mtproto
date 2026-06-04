@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 import re
 import os
 from datetime import datetime
-from telethon import TelegramClient
+from telethon import TelegramClient, errors
 from telethon.tl.custom import Button
 from telethon.network.connection import ConnectionTcpMTProxyRandomizedIntermediate
 
@@ -60,14 +60,21 @@ class MTProtoProxyBot:
             print(f"[{datetime.now()}] Relay fetch error: {e}")
 
     async def try_connect_direct(self):
-        self.client = TelegramClient('proxy_bot', API_ID, API_HASH)
+        self.client = TelegramClient('proxy_bot', API_ID, API_HASH, flood_sleep_threshold=0)
         try:
             await self.client.start(bot_token=BOT_TOKEN)
             print(f"[{datetime.now()}] Connected directly")
             return True
+        except errors.FloodWaitError as e:
+            print(f"[{datetime.now()}] Direct flood wait: sleeping {e.seconds}s")
+            await asyncio.sleep(e.seconds)
+            return await self.try_connect_direct()
         except Exception as e:
             print(f"[{datetime.now()}] Direct connection failed: {e}")
-            await self.client.disconnect()
+            try:
+                await self.client.disconnect()
+            except Exception:
+                pass
             self.client = None
             return False
 
@@ -76,15 +83,23 @@ class MTProtoProxyBot:
         proxy_tuple = (proxy['server'], proxy['port'], proxy['secret'])
         self.client = TelegramClient(
             'proxy_bot', API_ID, API_HASH,
-            connection=conn, proxy=proxy_tuple
+            connection=conn, proxy=proxy_tuple,
+            flood_sleep_threshold=0
         )
         try:
             await self.client.start(bot_token=BOT_TOKEN)
             print(f"[{datetime.now()}] Connected via proxy {proxy['server']}:{proxy['port']}")
             return True
+        except errors.FloodWaitError as e:
+            print(f"[{datetime.now()}] Proxy flood wait: sleeping {e.seconds}s")
+            await asyncio.sleep(e.seconds)
+            return await self.try_connect_via_proxy(proxy)
         except Exception as e:
             print(f"[{datetime.now()}] Proxy {proxy['server']}:{proxy['port']} failed: {e}")
-            await self.client.disconnect()
+            try:
+                await self.client.disconnect()
+            except Exception:
+                pass
             self.client = None
             return False
 

@@ -118,120 +118,69 @@ class MTProtoProxyBot:
 
     async def parse_mtproto_cloud(self):
         print(f"[{datetime.now()}] PARSER: Starting parsing...")
+        seen_set = set()
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(FEED_URL, timeout=30) as response:
-                    data = await response.json(content_type=None)
-                items = data.get('items', []) if isinstance(data, dict) else []
-                print(f"[{datetime.now()}] PARSER: API feed returned {len(items)} items")
-                seen_set = set()
-                for item in items:
-                    if item.get('category') != 'proxy' or item.get('kind') != 'mtproto_proxy':
-                        continue
-                    if item.get('status') != 'online':
-                        continue
-                    server = (item.get('server') or '').strip()
-                    port = item.get('port')
-                    share_text = item.get('shareText') or item.get('connectUrl') or ''
-                    if not server or port is None or not share_text:
-                        continue
+                async with session.get(MTPROTO_URL, timeout=30) as response:
+                    html = await response.text()
+                print(f"[{datetime.now()}] PARSER: HTML page loaded, {len(html)} bytes")
+
+                for m in re.finditer(r'https://mtproto\.cloud/connect\?[^"\'<>]+', html):
                     from urllib.parse import urlparse, parse_qs
-                    try:
-                        qs = parse_qs(urlparse(share_text).query)
-                    except Exception:
-                        continue
+                    qs = parse_qs(urlparse(m.group()).query)
+                    server = (qs.get('server') or [''])[0].strip().rstrip('.')
+                    port_str = (qs.get('port') or [''])[0]
                     secret = (qs.get('secret') or [''])[0].strip()
-                    if not secret:
+                    if not server or not port_str or not secret:
                         continue
-                    key = (server, int(port), secret)
+                    try:
+                        port = int(port_str)
+                    except (TypeError, ValueError):
+                        continue
+                    key = (server, port, secret)
                     if key in seen_set:
                         continue
                     seen_set.add(key)
-                    proxy = {'server': server, 'port': int(port), 'secret': secret}
+                    proxy = {'server': server, 'port': port, 'secret': secret}
                     self.proxies.append(proxy)
-                    print(f"[{datetime.now()}] PARSER: API proxy: {server}:{port}")
+                    print(f"[{datetime.now()}] PARSER: HTML proxy: {server}:{port}")
             except Exception as e:
-                print(f"[{datetime.now()}] PARSER: API feed error (fallback to HTML): {e}")
+                print(f"[{datetime.now()}] PARSER: HTML error (fallback to API): {e}")
                 try:
-                    async with session.get(MTPROTO_URL, timeout=30) as response:
-                        html = await response.text()
-                        print(f"[{datetime.now()}] PARSER: HTML page loaded, {len(html)} bytes")
-                        soup = BeautifulSoup(html, 'html.parser')
-                        proxy_cards = soup.find_all(
-                            'div', class_=re.compile(r'proxy|card|server', re.I)
-                        )
-                        print(f"[{datetime.now()}] PARSER: Found {len(proxy_cards)} proxy cards")
-                        for card in proxy_cards:
-                            proxy_data = self.extract_proxy_from_card(card)
-                            if proxy_data:
-                                self.proxies.append(proxy_data)
-                                print(f"[{datetime.now()}] PARSER: HTML proxy: {proxy_data['server']}:{proxy_data['port']}")
-                        text = soup.get_text()
-                        self.extract_proxies_from_text(text)
+                    async with session.get(FEED_URL, timeout=30) as response:
+                        data = await response.json(content_type=None)
+                    items = data.get('items', []) if isinstance(data, dict) else []
+                    print(f"[{datetime.now()}] PARSER: API feed returned {len(items)} items")
+                    for item in items:
+                        if item.get('category') != 'proxy' or item.get('kind') != 'mtproto_proxy':
+                            continue
+                        if item.get('status') != 'online':
+                            continue
+                        server = (item.get('server') or '').strip()
+                        port = item.get('port')
+                        share_text = item.get('shareText') or item.get('connectUrl') or ''
+                        if not server or port is None or not share_text:
+                            continue
+                        from urllib.parse import urlparse, parse_qs
+                        try:
+                            qs = parse_qs(urlparse(share_text).query)
+                        except Exception:
+                            continue
+                        secret = (qs.get('secret') or [''])[0].strip()
+                        if not secret:
+                            continue
+                        key = (server, int(port), secret)
+                        if key in seen_set:
+                            continue
+                        seen_set.add(key)
+                        proxy = {'server': server, 'port': int(port), 'secret': secret}
+                        self.proxies.append(proxy)
+                        print(f"[{datetime.now()}] PARSER: API proxy: {server}:{port}")
                 except Exception as e2:
-                    print(f"[{datetime.now()}] PARSER: HTML fallback also failed: {e2}")
+                    print(f"[{datetime.now()}] PARSER: API fallback also failed: {e2}")
 
             print(f"[{datetime.now()}] PARSER: Total proxies found: {len(self.proxies)}")
-
-    def extract_proxy_from_card(self, card):
-        try:
-            server = port = secret = None
-
-            server_tag = card.find(text=re.compile(r'server|сервер', re.I))
-            if server_tag:
-                parent = server_tag.find_parent()
-                if parent:
-                    server_text = parent.get_text(strip=True)
-                    server_match = re.search(r'([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', server_text)
-                    if server_match:
-                        server = server_match.group(1)
-
-            port_tag = card.find(text=re.compile(r'port|порт', re.I))
-            if port_tag:
-                parent = port_tag.find_parent()
-                if parent:
-                    port_text = parent.get_text(strip=True)
-                    port_match = re.search(r'(\d{2,5})', port_text)
-                    if port_match:
-                        port = int(port_match.group(1))
-
-            secret_tag = card.find(text=re.compile(r'secret|ключ', re.I))
-            if secret_tag:
-                parent = secret_tag.find_parent()
-                if parent:
-                    secret_text = parent.get_text(strip=True)
-                    secret_match = re.search(r'([a-fA-F0-9]{32,})', secret_text)
-                    if secret_match:
-                        secret = secret_match.group(1)
-
-            if server and port and secret:
-                return {'server': server, 'port': port, 'secret': secret}
-        except Exception as e:
-            print(f"Extract error: {e}")
-        return None
-
-    def extract_proxies_from_text(self, text):
-        patterns = [
-            r'server[:\s]+([a-zA-Z0-9.-]+)[\s,\n]+port[:\s]+(\d+)[\s,\n]+secret[:\s]+([a-fA-F0-9]+)',
-            r'tg://proxy\?server=([^&]+)&port=(\d+)&secret=([^&\s]+)',
-        ]
-        for pattern in patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            print(f"[{datetime.now()}] PARSER: Pattern match found {len(matches)} results")
-            for match in matches:
-                if len(match) == 3:
-                    proxy = {
-                        'server': match[0].strip(),
-                        'port': int(match[1]),
-                        'secret': match[2].strip(),
-                    }
-                    if not any(
-                        p['server'] == proxy['server'] and p['port'] == proxy['port']
-                        for p in self.proxies
-                    ):
-                        self.proxies.append(proxy)
-                        print(f"[{datetime.now()}] PARSER: Text-extracted proxy: {proxy['server']}:{proxy['port']}")
 
     async def _call_with_retry(self, fn, *args, max_retries=3, **kwargs):
         for attempt in range(max_retries):

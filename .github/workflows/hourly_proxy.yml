@@ -3,7 +3,7 @@ name: MTProto Proxy Publisher (Every 30 Minutes)
 on:
   schedule:
     # Запуск каждые 30 минут
-    - cron: '*/30 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:  # Ручной запуск
 
 jobs:
